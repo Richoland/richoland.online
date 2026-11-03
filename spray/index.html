@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treino de Spray AK-47 | CS2</title>
+<!--
+  FONTE DO PADRAO DE SPRAY (AK-47, 30 balas)
+  - imbaboost.com/tools/cs2-recoil-patterns (https://imbaboost.com/tools/cs2-recoil-patterns)
+    Tabela "AK-47 · 30 bullets · 600 rpm · measured 2026-10-09 · CS2 1.41.9.0", medida no CS2
+    (2560x1440 esticado, hfov 106,26 graus, perfil cs2). Valores em graus por bala, relativos a bala 1 = (0,0):
+    yaw (+ direita) e pitch (+ para cima). Sao os desvios SEM mover o mouse.
+  - Verificado so por essa fonte (nao consegui cruzar com um JSON de repositorio no GitHub; o repositorio
+    o40/csgo_spray_pattern_plotter so extrai dados de demos, nao traz um JSON pronto).
+  - A bala 30 da tabela e igual a bala 29 (como esta na fonte). O formato geral (sobe, esquerda, direita,
+    esquerda, direita) bate com o padrao classico do AK do CSGO, que o CS2 mantem quase igual.
+  - Tap e burst (aproximacao): o recuo volta ao inicio de forma linear em 400 ms sem atirar (valor estimado, nao medido);
+    o indice fracionario do recuo interpola entre as balas do padrao. Alvo movel: onda triangular de +-6 graus.
+  - Simplificacoes: sem espalhamento aleatorio (inaccuracy), sem movimento/agachar, sem decaimento do punch
+    entre as balas, tempo fixo de 100 ms por tiro (600 RPM).
+-->
+<style>
+:root{
+  --bg:#0b0e12; --panel:#151a21; --panel2:#1b222b; --line:#2a323d; --text:#d7dde5; --dim:#8b97a6;
+  --accent:#f0a030; --accent2:#3cf0ff; --good:#5bd66a; --warn:#e8d44d; --mid:#f0922b; --bad:#e5483f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI",Roboto,Arial,sans-serif}
+header{display:flex;align-items:baseline;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#171d25,#10151b)}
+header h1{margin:0;font-size:20px;letter-spacing:3px;text-transform:uppercase;color:var(--accent);font-weight:700}
+header span{color:var(--dim);font-size:13px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:16px;padding:16px 20px;align-items:start}
+@media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:12px 14px;margin-bottom:14px}
+.panel h3{margin:0 0 10px;font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--accent);font-weight:700}
+.panel h3 small{color:var(--dim);letter-spacing:0;text-transform:none;font-weight:400;margin-left:6px}
+.canvas-wrap{position:relative;display:flex;justify-content:center;background:#07090c;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+canvas{display:block}
+#c{cursor:crosshair}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
+  background:rgba(7,9,12,.72);text-align:center;padding:20px}
+.overlay.hidden{display:none}
+.overlay .box{border:1px solid var(--accent);background:rgba(21,26,33,.92);padding:18px 26px;border-radius:4px;max-width:520px}
+.overlay .big{font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:6px}
+.overlay .sm{color:var(--dim)}
+.overlay .err{color:var(--bad);margin-top:8px;min-height:1em}
+label{display:block;color:var(--dim);font-size:12px;margin:8px 0 3px}
+input[type=text],select,textarea{width:100%;background:#0e1319;color:var(--text);border:1px solid var(--line);border-radius:3px;
+  padding:6px 8px;font:inherit}
+input[type=text]:focus,select:focus,textarea:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+textarea{height:64px;resize:vertical;font:12px Consolas,monospace}
+.row{display:flex;gap:8px}.row>div{flex:1}
+button,.btn{background:#222b36;color:var(--text);border:1px solid var(--line);border-radius:3px;padding:6px 10px;font:inherit;cursor:pointer}
+button:hover,.btn:hover{border-color:var(--accent);color:#fff}
+.chk{display:flex;gap:8px;align-items:center;margin:6px 0;color:var(--text);font-size:13px}
+.chk input{accent-color:var(--accent)}
+.muted{color:var(--dim);font-size:12px}
+.msg{font-size:12px;margin-top:6px;min-height:1em;color:var(--accent2)}
+.score-box{display:flex;align-items:center;gap:14px}
+.score{font-size:54px;font-weight:700;line-height:1;color:var(--accent);min-width:100px;text-align:center}
+.tier{font-size:13px;letter-spacing:1px;text-transform:uppercase}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:10px;font-size:13px}
+.stats div span{color:var(--dim)}
+.tip{margin-top:8px;padding:8px;background:#10161d;border-left:3px solid var(--accent);font-size:12px;color:var(--text)}
+.hist{width:100%;border-collapse:collapse;font-size:12px}
+.hist th{color:var(--dim);font-weight:400;text-align:left;border-bottom:1px solid var(--line);padding:3px 4px}
+.hist td{padding:3px 4px;border-bottom:1px solid #1f2731}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:12px;color:var(--dim)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
+code{background:#0e1319;border:1px solid var(--line);padding:1px 4px;border-radius:3px;font-size:11.5px;word-break:break-all}
+details{margin-top:6px}summary{cursor:pointer;color:var(--accent)}
+kbd{background:#0e1319;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 5px;font-size:12px}
+ul{padding-left:18px;margin:6px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Spray Control</h1>
+  <span>AK-47 · CS2 · treino de controle de recoil</span>
+</header>
+
+<main class="layout">
+  <section>
+    <div class="canvas-wrap" id="wrap">
+      <canvas id="c"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="box">
+          <div class="big">Clique para travar o mouse</div>
+          <div class="sm">Depois, segure o <b>botão esquerdo</b> para dar o spray de 30 balas e puxe o mouse para baixo e para os lados para manter os tiros no ponto central.<br>
+            <kbd>R</kbd> reinicia · <kbd>G</kbd> liga/desliga o fantasma · <kbd>Esc</kbd> solta o mouse</div>
+          <div class="err" id="lockErr"></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h3>Erro por bala <small>distância do tiro até o ponto central, em graus</small></h3>
+      <canvas id="chart" style="width:100%;height:150px"></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--good)"></i>até 0,4°</span>
+        <span><i class="dot" style="background:var(--warn)"></i>até 0,9°</span>
+        <span><i class="dot" style="background:var(--mid)"></i>até 1,6°</span>
+        <span><i class="dot" style="background:var(--bad)"></i>acima de 1,6°</span>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h3>Replay comparado <small>sua mira (branco) contra o caminho ideal (amarelo)</small></h3>
+      <div class="canvas-wrap" id="rwrap"><canvas id="rc"></canvas></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+        <button id="rPlay" style="min-width:110px">Reproduzir</button>
+        <input type="range" id="rScrub" min="0" max="1000" value="0" style="flex:1;accent-color:var(--accent)">
+        <select id="rspeed" style="width:90px"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1">1x</option></select>
+      </div>
+      <div class="chk"><input type="checkbox" id="rauto"><label for="rauto" style="margin:0;color:var(--text)">Replay automático ao terminar</label></div>
+      <div class="muted" id="rInfo">Faça um spray para ver o replay.</div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h3>Resultado do spray</h3>
+      <div class="score-box">
+        <div class="score" id="score">-</div>
+        <div>
+          <div class="tier" id="tier">Faça um spray</div>
+          <div class="muted" id="scoreSub">Precisão de 0 a 100</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div><span>Erro médio:</span> <b id="stAvg">-</b></div>
+        <div><span>Pior bala:</span> <b id="stMax">-</b></div>
+        <div><span id="lbA">Início:</span> <b id="stA">-</b></div>
+        <div><span id="lbB">Meio:</span> <b id="stB">-</b></div>
+        <div><span id="lbC">Fim:</span> <b id="stC">-</b></div>
+        <div><span id="lbBest">Melhor nota (100%):</span> <b id="stBest">-</b></div>
+        <div><span>Média (10, vel. atual):</span> <b id="stMean">-</b></div>
+        <div><span>Sprays salvos:</span> <b id="stCount">0</b></div>
+      </div>
+      <div class="muted" id="bestSlow" style="margin-top:6px"></div>
+      <div class="tip" id="tip" style="display:none"></div>
+      <div class="muted" style="margin-top:8px" id="scoreNote"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Treino</h3>
+      <label for="mode">Modo de treino</label>
+      <select id="mode">
+        <optgroup label="Spray (AK-47, 30 balas)">
+          <option value="full">Spray completo</option>
+          <option value="p1">Balas 1-10</option>
+          <option value="p2">Balas 10-20</option>
+          <option value="p3">Balas 20-30</option>
+        </optgroup>
+        <optgroup label="Curto">
+          <option value="tap">Tap (1 bala)</option>
+          <option value="b3">Burst 3</option>
+          <option value="b5">Burst 5</option>
+        </optgroup>
+      </select>
+      <div class="muted" id="modeNote" style="margin-top:6px"></div>
+      <div class="chk" style="margin-top:10px"><input type="checkbox" id="moving"><label for="moving" style="margin:0;color:var(--text)">Alvo que se mexe (cabeça andando de um lado pro outro)</label></div>
+      <label for="tspeed">Velocidade do alvo: <b id="tspeedTxt">12 °/s</b></label>
+      <input type="range" id="tspeed" min="3" max="40" step="1" style="width:100%;accent-color:var(--accent)">
+      <label for="speed" style="margin-top:12px">Velocidade (câmera lenta)</label>
+      <select id="speed">
+        <option value="50">50% (200 ms por tiro)</option>
+        <option value="75">75% (133 ms por tiro)</option>
+        <option value="100">100% (100 ms por tiro)</option>
+      </select>
+      <div class="chk"><input type="checkbox" id="auto"><label for="auto" style="margin:0;color:var(--text)">Acelerar automaticamente (3 sprays seguidos com nota 80 ou mais)</label></div>
+      <div class="muted" id="autoMsg"></div>
+      <div class="chk" style="margin-top:10px"><input type="checkbox" id="guide"><label for="guide" style="margin:0;color:var(--text)">Modo guiado: o ponto amarelo mostra onde a mira deve estar</label></div>
+      <label for="gop">Opacidade do guia: <b id="gopTxt">80%</b></label>
+      <input type="range" id="gop" min="0" max="100" step="5" style="width:100%;accent-color:var(--accent)">
+      <div class="chk"><input type="checkbox" id="fade"><label for="fade" style="margin:0;color:var(--text)">Fade progressivo: o guia some conforme suas últimas 5 notas sobem</label></div>
+      <div class="muted" id="guideStatus"></div>
+      <div class="muted" style="margin-top:6px">A melhor nota só conta em 100%. O histórico mostra a velocidade de cada spray.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Sensibilidade</h3>
+      <div class="row">
+        <div><label for="sens">sensitivity</label><input type="text" id="sens" inputmode="decimal"></div>
+        <div><label for="myaw">m_yaw</label><input type="text" id="myaw" inputmode="decimal"></div>
+        <div><label for="mpitch">m_pitch</label><input type="text" id="mpitch" inputmode="decimal"></div>
+      </div>
+      <div class="row">
+        <div><label for="dpi">DPI do mouse (opcional)</label><input type="text" id="dpi" inputmode="numeric" placeholder="ex: 800"></div>
+        <div><label for="mult">Multiplicador de movimento</label><input type="text" id="mult" inputmode="decimal"></div>
+      </div>
+      <div class="muted" id="derived" style="margin-top:6px"></div>
+
+      <label for="file">Arquivo de config (<code>config.cfg</code>, <code>autoexec.cfg</code>, <code>cs2_user_convars*.vcfg</code>)</label>
+      <input type="file" id="file" accept=".cfg,.vcfg,.txt,.conf" multiple style="width:100%;color:var(--dim)">
+      <label for="paste">Ou cole o conteúdo aqui</label>
+      <textarea id="paste" spellcheck="false" placeholder='sensitivity "1.25"'></textarea>
+      <div class="row" style="margin-top:6px">
+        <div><button id="parseBtn" style="width:100%">Ler config colada</button></div>
+      </div>
+      <div class="msg" id="cfgMsg"></div>
+
+      <details>
+        <summary>Onde fica o config do CS2</summary>
+        <ul class="muted">
+          <li>Usuário (é onde o CS2 guarda a sua sensibilidade): <code>C:\Program Files (x86)\Steam\userdata\&lt;id&gt;\730\local\cfg\cs2_user_convars_0_slot0.vcfg</code></li>
+          <li>Do jogo: <code>...\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\cfg\</code> (<code>autoexec.cfg</code>, <code>config.cfg</code>)</li>
+          <li>Dica: no console do jogo, digite <code>sensitivity</code> para ver o valor atual.</li>
+          <li>O <code>&lt;id&gt;</code> é uma pasta numérica dentro de <code>userdata</code>. Se tiver várias, use a mais recente.</li>
+          <li>Se mexeu no zoom, ele não importa aqui (spray de AK sem mira).</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h3>Tela e opções</h3>
+      <div class="row">
+        <div><label for="aspect">Proporção / FOV horizontal</label>
+          <select id="aspect">
+            <option value="4:3">4:3 (90°)</option>
+            <option value="16:10">16:10 (100,4°)</option>
+            <option value="16:9">16:9 (106,3°)</option>
+          </select></div>
+        <div><label for="zoom">Zoom visual</label>
+          <select id="zoom">
+            <option value="1">1x (escala do jogo)</option><option value="1.5">1,5x</option>
+            <option value="2">2x</option><option value="3">3x</option>
+          </select></div>
+      </div>
+      <div class="chk"><input type="checkbox" id="ghost"><label for="ghost" style="margin:0;color:var(--text)">Fantasma: padrão sem compensar (tecla <kbd>G</kbd>)</label></div>
+      <div class="chk"><input type="checkbox" id="ideal"><label for="ideal" style="margin:0;color:var(--text)">Caminho ideal da mira (ciano)</label></div>
+      <div class="chk"><input type="checkbox" id="raw"><label for="raw" style="margin:0;color:var(--text)">Pedir movimento bruto (unadjustedMovement)</label></div>
+      <div class="muted" id="rawStatus">Movimento bruto: aguardando</div>
+      <div class="muted" style="margin-top:6px">O zoom só muda o tamanho do desenho. A conversão contagens → graus → pixels usa a sua sensibilidade e a largura do canvas (<span id="pxdeg">-</span> px por grau a 1x).</div>
+      <details>
+        <summary>Mouse com movimento estranho?</summary>
+        <ul class="muted">
+          <li>O navegador pode aplicar a velocidade do ponteiro e a aceleração do Windows no <code>movementX</code>.</li>
+          <li>Desligue <b>Aprimorar a precisão do ponteiro</b>: Configurações do Windows &gt; Dispositivos &gt; Mouse &gt; Configurações adicionais do mouse &gt; Opções do ponteiro. Deixe a velocidade em 6/11.</li>
+          <li>Chrome e Edge aceitam movimento bruto (a caixa acima). No Firefox ele pode não existir.</li>
+          <li>Escala de tela do Windows diferente de 100% ou zoom do navegador pode alterar a contagem. Se o spray parecer "curto" ou "longo" demais, ajuste o multiplicador de movimento (a escala atual da tela é <b id="dprTxt">-</b>).</li>
+        </ul>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h3>Histórico <small>últimos 20 treinos</small></h3>
+      <table class="hist"><thead><tr><th>#</th><th>Hora</th><th>Nota</th><th>Erro médio</th><th>Modo</th><th>Sens</th></tr></thead>
+        <tbody id="histBody"></tbody></table>
+      <div class="muted" id="histEmpty">Nenhum spray ainda.</div>
+      <div style="margin-top:8px"><button id="clearHist">Limpar histórico</button></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+/*CORE-START*/
+// [yaw (+ direita), pitch (+ cima)] em graus, por bala, sem mover o mouse. Fonte no comentario do topo.
+const PATTERN = [
+  [ 0.000, 0.000],[-0.048, 1.015],[ 0.018, 2.636],[ 0.036, 4.437],[-0.591, 6.065],
+  [-1.009, 7.507],[-1.778, 8.706],[-0.895, 9.486],[ 1.307, 9.288],[ 2.594, 9.491],
+  [ 1.927,10.048],[ 2.737,10.169],[ 4.069, 9.874],[ 4.337,10.048],[ 2.350,10.256],
+  [ 1.152,10.545],[ 0.322,10.919],[-1.044,10.936],[-2.928,10.452],[-1.885,10.464],
+  [-2.118,10.556],[-1.766,10.879],[-1.313,11.161],[-2.338,10.982],[-2.612,11.046],
+  [-1.629,11.184],[ 0.209,11.028],[ 2.559,10.135],[ 3.547,10.071],[ 3.547,10.071]
+];
+const SHOTS = 30, SHOT_MS = 100, ZERO_AT = 2.5, DEFAULT_M = 0.022;
+const SPEEDS = [50, 75, 100], GOOD_SCORE = 80, GOOD_STREAK = 3;
+// APROXIMACOES (tap e burst): o recuo volta ao inicio de forma linear em RECOVER_MS sem atirar (valor estimado, nao medido);
+// o alvo anda em onda triangular de +-TARGET_AMP graus.
+const RECOVER_MS = 400, RHYTHM_WINDOW = 300, TARGET_AMP = 6;
+const MODES = {
+  full: {label: 'Spray completo', short: 'Completo', kind: 'spray', start: 0, count: 30},
+  p1:   {label: 'Balas 1-10', short: '1-10', kind: 'spray', start: 0, count: 10},
+  p2:   {label: 'Balas 10-20', short: '10-20', kind: 'spray', start: 9, count: 11},
+  p3:   {label: 'Balas 20-30', short: '20-30', kind: 'spray', start: 19, count: 11},
+  tap:  {label: 'Tap (1 bala)', short: 'Tap', kind: 'burst', burst: 1, units: 10, wAcc: 0.5},
+  b3:   {label: 'Burst 3', short: 'Burst 3', kind: 'burst', burst: 3, units: 6, wAcc: 0.65},
+  b5:   {label: 'Burst 5', short: 'Burst 5', kind: 'burst', burst: 5, units: 5, wAcc: 0.65}
+};
+
+function parseCfg(text){
+  const out = {};
+  const lines = String(text).split(/\r?\n/).filter(l => !/^\s*(bind|alias)\b/i.test(l));
+  const clean = lines.join('\n').replace(/\/\/.*$/gm, '');
+  const re = /(?:^|[;\s{])"?(sensitivity|m_yaw|m_pitch)"?[ \t]+"?(-?\d*\.?\d+(?:[eE][-+]?\d+)?)"?/gim;
+  let m;
+  while ((m = re.exec(clean))) {
+    const v = parseFloat(m[2]);
+    if (isFinite(v)) out[m[1].toLowerCase()] = v;
+  }
+  return out;
+}
+function hfovFor(aspect){ return 2 * Math.atan(0.75 * aspect) * 180 / Math.PI; }
+function focalPx(widthPx, hfovDeg){ return (widthPx / 2) / Math.tan(hfovDeg * Math.PI / 360); }
+function degToPx(deg, f){ return f * Math.tan(deg * Math.PI / 180); }
+function errorDeg(yaw, pitch){ return Math.hypot(yaw, pitch); }
+function scoreFromAvg(avg){ return Math.round(100 * Math.max(0, Math.min(1, 1 - avg / ZERO_AT))); }
+function viewAt(samples, t){
+  let r = samples[0];
+  for (let i = samples.length - 1; i >= 0; i--) { if (samples[i].t <= t) { r = samples[i]; break; } }
+  return r;
+}
+function viewLerp(samples, t){
+  const n = samples.length;
+  if (!n) return {yaw: 0, pitch: 0};
+  if (t <= samples[0].t) return samples[0];
+  for (let i = n - 1; i >= 0; i--) {
+    if (samples[i].t <= t) {
+      const a = samples[i], b = samples[i + 1];
+      if (!b || b.t <= a.t) return a;
+      const k = (t - a.t) / (b.t - a.t);
+      return {yaw: a.yaw + (b.yaw - a.yaw) * k, pitch: a.pitch + (b.pitch - a.pitch) * k};
+    }
+  }
+  return samples[0];
+}
+// recuo (graus) na bala de indice fracionario f
+function punchAt(f){
+  f = Math.max(0, Math.min(SHOTS - 1, f));
+  const i = Math.floor(f), fr = f - i, a = PATTERN[i], b = PATTERN[Math.min(i + 1, SHOTS - 1)];
+  return [a[0] + (b[0] - a[0]) * fr, a[1] + (b[1] - a[1]) * fr];
+}
+// alvo que se mexe: onda triangular de -TARGET_AMP a +TARGET_AMP, comecando no centro indo para a direita
+function triWave(d){
+  const A = TARGET_AMP, p = (((d + A) % (4 * A)) + 4 * A) % (4 * A);
+  return p < 2 * A ? p - A : 3 * A - p;
+}
+function targetAt(tMs, degPerSec, moving){ return moving ? {yaw: triWave(tMs / 1000 * degPerSec), pitch: 0} : {yaw: 0, pitch: 0}; }
+// indice (fracionario) do recuo no proximo tiro: sem atirar alem do intervalo do cano, volta linearmente a 0 em RECOVER_MS
+function recoilIdxAfter(idxNext, gapMs, interval){
+  const rec = RECOVER_MS * interval / SHOT_MS, g = Math.max(0, gapMs - interval);
+  return Math.max(0, idxNext * (1 - g / rec));
+}
+function rhythmWindow(interval){
+  const lo = interval + RECOVER_MS * interval / SHOT_MS;
+  return [lo, lo + RHYTHM_WINDOW * interval / SHOT_MS];
+}
+function rhythmScore(gaps, lo, hi){
+  if (!gaps.length) return 100;
+  let s = 0;
+  gaps.forEach(g => { s += g < lo ? 100 * Math.pow(g / lo, 2) : g <= hi ? 100 : Math.max(30, 100 - (g - hi) / 10); });
+  return s / gaps.length;
+}
+// caminho ideal da mira em spray: posicao do alvo menos o recuo, comecando na bala `start`
+function sprayIdealFn(start, count, interval, tgt){
+  return t => {
+    const f = Math.max(start, Math.min(start + count - 1, start + t / interval));
+    const p = punchAt(f), g = tgt(t);
+    return {yaw: g.yaw - p[0], pitch: g.pitch - p[1]};
+  };
+}
+function idealViewAt(tMs, interval){ return sprayIdealFn(0, SHOTS, interval, () => ({yaw: 0, pitch: 0}))(tMs); }
+// fator 0.08..1 que reduz a opacidade do guia conforme a media das ultimas 5 notas sobe (50 ou menos: 1, 90 ou mais: 0.08)
+function guideFade(scores){
+  const l = scores.slice(0, 5);
+  if (l.length < 3) return 1;
+  const mean = l.reduce((a, b) => a + b, 0) / l.length;
+  return Math.max(0.08, Math.min(1, 1 - (mean - 50) / 40));
+}
+const SEGMENTS = [[1, 4], [5, 9], [10, 15], [16, 21], [22, 30]];
+const f1 = n => n.toFixed(1).replace('.', ',');
+// atraso (ms, + = atrasou) da mira do usuario em relacao ao caminho ideal; null se nao for claro
+function detectLag(views, times, idealFn){
+  const n = views.length;
+  if (n < 8) return null;
+  function fit(tau){
+    let uu = 0, ug = 0, gg = 0;
+    for (let i = 0; i < n; i++) {
+      const g = idealFn(times[i] - tau), u = views[i];
+      ug += u.yaw * g.yaw + u.pitch * g.pitch;
+      gg += g.yaw * g.yaw + g.pitch * g.pitch;
+      uu += u.yaw * u.yaw + u.pitch * u.pitch;
+    }
+    const gain = gg > 0 ? ug / gg : 1;
+    return {sse: uu - 2 * gain * ug + gain * gain * gg, gain};
+  }
+  const base = fit(0);
+  let best = {tau: 0, sse: base.sse, gain: base.gain};
+  for (let tau = -250; tau <= 450; tau += 10) {
+    const r = fit(tau);
+    if (r.sse < best.sse) best = {tau, sse: r.sse, gain: r.gain};
+  }
+  let sse0 = 0;
+  for (let i = 0; i < n; i++) {
+    const g = idealFn(times[i]);
+    sse0 += (views[i].yaw - g.yaw) ** 2 + (views[i].pitch - g.pitch) ** 2;
+  }
+  const rms0 = Math.sqrt(sse0 / n);
+  if (Math.abs(best.tau) < 60 || best.tau >= 440 || best.tau <= -240 || rms0 < 0.5 || best.sse > 0.6 * Math.min(base.sse, sse0) || best.gain < 0.5 || best.gain > 1.6) return null;
+  return Math.round(best.tau / 10) * 10;
+}
+// dicas de spray (max 3). shots: [{t, yaw, pitch, tx, ty, num}] (impacto, alvo, numero absoluto da bala). Erros sao relativos ao alvo.
+function analyzeSprayTips(shots, idealFn, interval, avg){
+  const n = shots.length;
+  const e = shots.map(s => ({yaw: s.yaw - s.tx, pitch: s.pitch - s.ty}));
+  const id = shots.map(s => idealFn(s.t));
+  const cands = [];
+  SEGMENTS.forEach(sg => {
+    const idx = [];
+    shots.forEach((s, i) => { if (s.num >= sg[0] && s.num <= sg[1]) idx.push(i); });
+    if (idx.length < 2) return;
+    const lo = idx[0], hi = idx[idx.length - 1];
+    const errP = lo > 0 ? e[lo - 1] : {yaw: 0, pitch: 0}, idP = lo > 0 ? id[lo - 1] : id[lo];
+    const mYaw = e[hi].yaw - errP.yaw, mPitch = e[hi].pitch - errP.pitch;   // erro de movimento no trecho (+ = mira mais para direita/cima que o ideal)
+    const iYaw = id[hi].yaw - idP.yaw, iPitch = id[hi].pitch - idP.pitch;   // movimento ideal da mira no trecho
+    const where = 'nas balas ' + shots[lo].num + ' a ' + shots[hi].num;
+    const TH = 0.5, SM = 0.4;
+    if (Math.abs(mPitch) >= TH) {
+      let txt;
+      if (iPitch < -SM) txt = mPitch > 0 ? 'puxou pouco pra baixo' : 'puxou demais pra baixo';
+      else if (iPitch > SM) txt = mPitch > 0 ? 'puxou demais pra cima' : 'puxou pouco pra cima';
+      else txt = mPitch > 0 ? 'puxou pra cima sem precisar' : 'puxou pra baixo sem precisar';
+      cands.push({mag: Math.abs(mPitch), txt: txt + ' ' + where + ' (' + f1(Math.abs(mPitch)) + '° de erro)'});
+    }
+    if (Math.abs(mYaw) >= TH) {
+      let txt;
+      if (iYaw > SM) txt = mYaw > 0 ? 'puxou demais pra direita' : 'puxou pouco pra direita';
+      else if (iYaw < -SM) txt = mYaw > 0 ? 'puxou pouco pra esquerda' : 'puxou demais pra esquerda';
+      else txt = mYaw > 0 ? 'puxou pra direita sem precisar' : 'puxou pra esquerda sem precisar';
+      cands.push({mag: Math.abs(mYaw), txt: txt + ' ' + where + ' (' + f1(Math.abs(mYaw)) + '° de erro)'});
+    }
+  });
+  cands.sort((x, y) => y.mag - x.mag);
+  const tips = [];
+  const views = shots.map((s, i) => ({yaw: e[i].yaw + id[i].yaw, pitch: e[i].pitch + id[i].pitch}));
+  const lag = detectLag(views, shots.map(s => s.t), idealFn);
+  if (lag !== null) {
+    tips.push(lag > 0
+      ? 'atrasou a virada: sua mira chega nos pontos uns ' + lag + ' ms depois do certo, comece o movimento um pouco antes'
+      : 'adiantou a virada: sua mira chega nos pontos uns ' + (-lag) + ' ms antes do certo, espere um pouco mais');
+  }
+  cands.slice(0, lag !== null ? 1 : 3).forEach(c => tips.push(c.txt));
+  if (!tips.length) tips.push(avg < 0.6 ? 'spray limpo, sem erro dominante' : 'sem erro dominante, o erro está espalhado: repita para ganhar consistência');
+  return tips.map(t => t.charAt(0).toUpperCase() + t.slice(1) + '.');
+}
+// dicas de tap/burst. shots: [{pos, yaw, pitch, tx, ty}], gaps: ms entre o ultimo tiro e o primeiro da proxima rajada
+function analyzeBurstTips(shots, gaps, interval, burst, avg){
+  const tips = [], w = rhythmWindow(interval), lo = w[0], hi = w[1];
+  if (gaps.length) {
+    const m = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    if (m < lo * 0.85) tips.push('atirou antes do recuo zerar: intervalo médio de ' + Math.round(m) + ' ms, espere uns ' + Math.round(lo) + ' ms entre ' + (burst === 1 ? 'os tiros' : 'as rajadas'));
+    else if (m > hi * 1.6) tips.push('ficou lento entre ' + (burst === 1 ? 'os tiros' : 'as rajadas') + ': intervalo médio de ' + Math.round(m) + ' ms, dá pra atirar a partir de ' + Math.round(lo) + ' ms');
+  }
+  const mean = (arr, k) => arr.reduce((a, s) => a + s[k], 0) / arr.length;
+  const ex = shots.map(s => ({pos: s.pos, yaw: s.yaw - s.tx, pitch: s.pitch - s.ty}));
+  const firsts = ex.filter(s => s.pos === 0);
+  if (firsts.length) {
+    const my = mean(firsts, 'yaw'), mp = mean(firsts, 'pitch');
+    if (Math.abs(my) >= 0.4) tips.push('seus primeiros tiros saem ' + (my > 0 ? 'à direita' : 'à esquerda') + ' do alvo (' + f1(Math.abs(my)) + '°)');
+    if (Math.abs(mp) >= 0.4) tips.push('seus primeiros tiros saem ' + (mp > 0 ? 'acima' : 'abaixo') + ' do alvo (' + f1(Math.abs(mp)) + '°)');
+  }
+  const rest = ex.filter(s => s.pos >= 1);
+  if (burst > 1 && rest.length) {
+    const mp = mean(rest, 'pitch'), my = mean(rest, 'yaw');
+    if (Math.abs(mp) >= 0.5) tips.push('dentro da rajada, ' + (mp > 0 ? 'puxou pouco pra baixo (tiros ' + f1(mp) + '° acima do alvo)' : 'puxou demais pra baixo (tiros ' + f1(-mp) + '° abaixo do alvo)'));
+    if (Math.abs(my) >= 0.5) tips.push('a rajada desvia para a ' + (my > 0 ? 'direita' : 'esquerda') + ' (' + f1(Math.abs(my)) + '°)');
+  }
+  if (!tips.length) tips.push(avg < 0.5 ? 'boa rodada, ritmo e mira consistentes' : 'sem erro dominante, repita para ganhar consistência');
+  return tips.slice(0, 3).map(t => t.charAt(0).toUpperCase() + t.slice(1) + '.');
+}
+/*CORE-END*/
+
+(function(){
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const fmt = (n, d = 2) => n.toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d});
+  const ASPECTS = {'4:3': 4/3, '16:10': 1.6, '16:9': 16/9};
+  const STORE_CFG = 'cs2spray.ak47.cfg.v2', STORE_HIST = 'cs2spray.ak47.hist.v1';
+
+  const canvas = $('c'), ctx = canvas.getContext('2d');
+  const chart = $('chart'), cctx = chart.getContext('2d');
+  const rcv = $('rc'), rctx = rcv.getContext('2d');
+  const wrap = $('wrap'), rwrap = $('rwrap'), overlay = $('overlay');
+
+  /* ---------- armazenamento ---------- */
+  function load(key, def){ try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch(e){ return def; } }
+  function save(key, val){ try { localStorage.setItem(key, JSON.stringify(val)); } catch(e){} }
+
+  const opts = Object.assign({sens: 0.6, yaw: DEFAULT_M, pitch: DEFAULT_M, aspect: '16:9', zoom: 3,
+    raw: true, mult: 1, dpi: '', ghost: true, ideal: false,
+    speed: 100, auto: false, streak: 0, guide: false, gop: 80, fade: false,
+    mode: 'full', moving: false, tspeed: 12, rauto: true, rspeed: 1}, load(STORE_CFG, {}));
+  if (!MODES[opts.mode]) opts.mode = 'full';
+  let store = load(STORE_HIST, {best: {}, history: []});
+  if (!store || !Array.isArray(store.history)) store = {best: {}, history: []};
+  // migracao: melhor nota antiga (numero ou chaves 50/75/100) vira a do modo "full"
+  if (typeof store.best !== 'object' || store.best === null) store.best = (typeof store.best === 'number') ? {100: store.best} : {};
+  (function(){ const nb = {}; Object.keys(store.best).forEach(k => { nb[k.indexOf('|') >= 0 ? k : 'full|' + k] = store.best[k]; }); store.best = nb; })();
+  store.history.forEach(h => { if (!h.speed) h.speed = 100; if (!h.mode) h.mode = 'full'; });
+
+  /* ---------- estado ---------- */
+  const S = {mode: 'idle', spec: MODES.full, interval: SHOT_MS, t0: 0, tgt: () => ({yaw: 0, pitch: 0}), moving: false,
+    view: {yaw: 0, pitch: 0}, samples: [], shots: [], next: 0, unit: null, unitsStarted: 0, unitsDone: 0, earlyUnits: 0,
+    R: {idxNext: 0, lastTs: null}, gaps: [], idealFn: null, result: null, rec: null, tEnd: 0, lastShot: 0};
+  const geo = {w: 800, h: 450, dpr: 1, f: 400}, rgeo = {w: 600, h: 340, dpr: 1, f: 300};
+  const RP = {T: 0, playing: false, last: 0};
+
+  const num = (v, d) => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : d; };
+  const spec = () => MODES[opts.mode] || MODES.full;
+  const modeKey = () => opts.mode + (opts.moving ? '+alvo' : '');
+  const modeLabel = key => { const p = key.split('+'); return (MODES[p[0]] ? MODES[p[0]].short : p[0]) + (p[1] ? ' +alvo' : ''); };
+  const tgtSpeed = () => opts.tspeed * opts.speed / 100;
+  const tgtFn = () => { const sp = tgtSpeed(), mv = opts.moving; return t => targetAt(t, sp, mv); };
+  const curInterval = () => SHOT_MS * 100 / opts.speed;
+  const totalShots = sp => sp.kind === 'spray' ? sp.count : sp.burst * sp.units;
+  const startView = sp => sp.kind === 'spray' ? {yaw: -PATTERN[sp.start][0], pitch: -PATTERN[sp.start][1]} : {yaw: 0, pitch: 0};
+  function errColor(e){ return e <= 0.4 ? '#5bd66a' : e <= 0.9 ? '#e8d44d' : e <= 1.6 ? '#f0922b' : '#e5483f'; }
+
+  /* ---------- tamanho e geometria ---------- */
+  function sizeCanvas(cv, wr, g, maxFrac){
+    const aspect = ASPECTS[opts.aspect] || 16/9;
+    let w = Math.max(280, wr.clientWidth - 2), h = w / aspect;
+    const maxH = Math.max(280, window.innerHeight * maxFrac);
+    if (h > maxH) { h = maxH; w = h * aspect; }
+    const dpr = window.devicePixelRatio || 1;
+    g.w = Math.round(w); g.h = Math.round(h); g.dpr = dpr;
+    cv.style.width = g.w + 'px'; cv.style.height = g.h + 'px';
+    cv.width = Math.round(g.w * dpr); cv.height = Math.round(g.h * dpr);
+    g.f = focalPx(g.w, hfovFor(aspect));
+  }
+  function resize(){
+    sizeCanvas(canvas, wrap, geo, 0.72);
+    sizeCanvas(rcv, rwrap, rgeo, 0.6);
+    const dpr = geo.dpr, cw = chart.clientWidth || 600;
+    chart.width = Math.round(cw * dpr); chart.height = Math.round(150 * dpr);
+    $('pxdeg').textContent = fmt(degToPx(1, geo.f), 1);
+    $('dprTxt').textContent = Math.round(dpr * 100) + '%';
+    updateDerived(); drawChart();
+  }
+
+  /* ---------- sensibilidade e opcoes ---------- */
+  function updateDerived(){
+    const degPerCount = opts.sens * opts.yaw * opts.mult;
+    let t = '1 contagem = ' + fmt(degPerCount, 4) + '° (' + fmt(degToPx(degPerCount, geo.f), 3) + ' px a 1x)';
+    const dpi = num(opts.dpi, 0);
+    if (dpi > 0 && opts.sens > 0 && opts.yaw > 0) {
+      t += ' · eDPI ' + fmt(dpi * opts.sens, 0) + ' · ' + fmt(360 / (opts.sens * opts.yaw) / dpi * 2.54, 1) + ' cm/360°';
+    }
+    $('derived').textContent = t;
+  }
+  function readInputs(){
+    opts.sens = Math.max(0.0001, num($('sens').value, opts.sens));
+    opts.yaw = Math.max(0.0001, num($('myaw').value, opts.yaw));
+    opts.pitch = Math.max(0.0001, num($('mpitch').value, opts.pitch));
+    opts.mult = Math.max(0.01, num($('mult').value, opts.mult));
+    opts.dpi = $('dpi').value.trim();
+    opts.aspect = $('aspect').value;
+    opts.zoom = num($('zoom').value, 3);
+    opts.ghost = $('ghost').checked; opts.ideal = $('ideal').checked; opts.raw = $('raw').checked;
+    const sp = num($('speed').value, 100), md = $('mode').value, mv = $('moving').checked;
+    if (sp !== opts.speed || md !== opts.mode || mv !== opts.moving) opts.streak = 0;
+    opts.speed = sp; opts.mode = MODES[md] ? md : 'full'; opts.moving = mv;
+    opts.tspeed = num($('tspeed').value, 12);
+    opts.auto = $('auto').checked; opts.guide = $('guide').checked;
+    opts.fade = $('fade').checked; opts.gop = num($('gop').value, 80);
+    opts.rauto = $('rauto').checked; opts.rspeed = num($('rspeed').value, 1);
+    save(STORE_CFG, opts); updateDerived(); updateGuideInfo(); updateModeNote();
+  }
+  function writeInputs(){
+    $('sens').value = String(opts.sens); $('myaw').value = String(opts.yaw); $('mpitch').value = String(opts.pitch);
+    $('mult').value = String(opts.mult); $('dpi').value = opts.dpi;
+    $('aspect').value = opts.aspect; $('zoom').value = String(opts.zoom);
+    $('ghost').checked = opts.ghost; $('ideal').checked = opts.ideal; $('raw').checked = opts.raw;
+    $('speed').value = String(opts.speed); $('auto').checked = opts.auto; $('guide').checked = opts.guide;
+    $('fade').checked = opts.fade; $('gop').value = String(opts.gop);
+    $('mode').value = opts.mode; $('moving').checked = opts.moving; $('tspeed').value = String(opts.tspeed);
+    $('rauto').checked = opts.rauto; $('rspeed').value = String(opts.rspeed);
+    updateGuideInfo(); updateModeNote();
+  }
+  const speedScores = () => store.history.filter(h => h.speed === opts.speed && h.mode === modeKey()).map(h => h.score);
+  const guideAlpha = () => opts.guide ? (opts.gop / 100) * (opts.fade ? guideFade(speedScores()) : 1) : 0;
+  function updateGuideInfo(){
+    $('gopTxt').textContent = opts.gop + '%';
+    $('tspeedTxt').textContent = fmt(opts.tspeed, 0) + ' °/s';
+    let t = '';
+    if (opts.guide) {
+      t = 'Opacidade atual do guia: ' + Math.round(guideAlpha() * 100) + '%';
+      if (opts.fade) {
+        const sc = speedScores().slice(0, 5);
+        t += sc.length < 3 ? ' (o fade começa depois de 3 sprays nesse modo e velocidade)' : ' (média das últimas ' + sc.length + ' notas: ' + fmt(sc.reduce((a, b) => a + b, 0) / sc.length, 0) + ')';
+      }
+    }
+    $('guideStatus').textContent = t;
+    $('autoMsg').textContent = opts.auto && opts.speed < 100 ? 'Sequência de sprays com nota ' + GOOD_SCORE + ' ou mais: ' + opts.streak + ' de ' + GOOD_STREAK : '';
+  }
+  function updateModeNote(){
+    const sp = spec(), iv = curInterval(), w = rhythmWindow(iv);
+    let t;
+    if (sp.kind === 'spray' && sp.start === 0 && sp.count === SHOTS) t = 'Spray completo: 30 balas, a mira começa no alvo.';
+    else if (sp.kind === 'spray') t = 'Treino por partes: a mira já começa na posição ideal da bala ' + (sp.start + 1) + ' e só as balas ' + (sp.start + 1) + ' a ' + (sp.start + sp.count) + ' são disparadas e pontuadas.';
+    else t = 'Cada clique dispara ' + (sp.burst === 1 ? '1 bala' : 'até ' + sp.burst + ' balas (solte antes para parar)') + '. Rodada de ' + sp.units + (sp.burst === 1 ? ' tiros' : ' rajadas') +
+      '. A mira fica livre entre os tiros, então volte ao alvo. Ritmo: espere entre ' + Math.round(w[0]) + ' e ' + Math.round(w[1]) + ' ms entre ' + (sp.burst === 1 ? 'os tiros' : 'as rajadas') +
+      '. Aproximação: sem atirar, o recuo volta ao início de forma linear em ' + Math.round(RECOVER_MS * iv / SHOT_MS) + ' ms (valor estimado, não medido).' +
+      (sp.burst > 1 ? ' Soltar antes da rajada completa reduz a nota.' : '');
+    $('modeNote').textContent = t;
+    $('scoreNote').textContent = sp.kind === 'spray'
+      ? 'Nota = 100 × (1 − erro médio ÷ 2,5°), limitada entre 0 e 100. Erro médio 0° dá 100, 2,5° ou mais dá 0. Só sprays completos valem' + (sp.count < SHOTS ? ' (' + sp.count + ' balas neste modo)' : ' (30 balas)') + '.'
+      : 'Nota = ' + Math.round(sp.wAcc * 100) + '% precisão (mesma fórmula do spray, sobre todas as balas) + ' + Math.round((1 - sp.wAcc) * 100) + '% ritmo (intervalo entre ' + (sp.burst === 1 ? 'os tiros' : 'as rajadas') + ' dentro da janela acima), multiplicada pela fração de balas disparadas. Só rodadas completas valem.';
+    if (opts.moving) $('scoreNote').textContent += ' Com alvo móvel, o erro é medido até a cabeça do alvo no instante do tiro.';
+  }
+  function applyCfgText(text, label){
+    const r = parseCfg(text), found = [];
+    if (r.sensitivity !== undefined) { opts.sens = r.sensitivity; found.push('sensitivity ' + r.sensitivity); }
+    if (r.m_yaw !== undefined) { opts.yaw = r.m_yaw; found.push('m_yaw ' + r.m_yaw); }
+    if (r.m_pitch !== undefined) { opts.pitch = r.m_pitch; found.push('m_pitch ' + r.m_pitch); }
+    const msg = $('cfgMsg');
+    if (r.sensitivity === undefined) {
+      msg.style.color = 'var(--bad)';
+      msg.textContent = (label ? label + ': ' : '') + 'não achei "sensitivity" nesse texto.' + (found.length ? ' Achei: ' + found.join(', ') + '.' : '');
+    } else {
+      msg.style.color = 'var(--accent2)';
+      msg.textContent = (label ? label + ': ' : '') + 'lido ' + found.join(', ') + '.' + (r.m_yaw === undefined ? ' m_yaw não aparece, usando o valor atual (' + opts.yaw + ').' : '');
+    }
+    writeInputs(); save(STORE_CFG, opts); updateDerived();
+  }
+
+  /* ---------- pointer lock ---------- */
+  function setRaw(txt){ $('rawStatus').textContent = 'Movimento bruto: ' + txt; }
+  function lock(){
+    $('lockErr').textContent = '';
+    const raw = $('raw').checked;
+    let p;
+    try { p = canvas.requestPointerLock(raw ? {unadjustedMovement: true} : undefined); } catch(e){ p = null; }
+    if (p && typeof p.then === 'function') {
+      p.then(() => setRaw(raw ? 'ativo' : 'desligado (usando movimento do sistema)'),
+        () => {
+          if (raw) {
+            setRaw('indisponível aqui, usando o movimento do sistema');
+            try { const p2 = canvas.requestPointerLock(); if (p2 && p2.catch) p2.catch(() => {}); } catch(e){}
+          }
+        });
+    } else {
+      setRaw(raw ? 'não confirmado neste navegador' : 'desligado');
+    }
+  }
+  const locked = () => document.pointerLockElement === canvas;
+  document.addEventListener('pointerlockchange', () => {
+    overlay.classList.toggle('hidden', locked());
+    if (locked() && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    if (!locked() && S.mode === 'firing') finish(false);
+  });
+  document.addEventListener('pointerlockerror', () => {
+    $('lockErr').textContent = 'O navegador não deixou travar o mouse. Espere um segundo e clique de novo.';
+  });
+  canvas.addEventListener('click', () => { if (!locked()) lock(); });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('blur', () => { if (S.mode === 'firing') finish(false); });
+
+  /* ---------- motor: spray, partes, tap e burst ---------- */
+  function beginRound(ts, sp){
+    S.mode = 'firing'; S.spec = sp; S.interval = curInterval(); S.t0 = ts; S.tgt = tgtFn(); S.moving = opts.moving;
+    const sv = startView(sp);
+    S.view = {yaw: sv.yaw, pitch: sv.pitch};
+    S.samples = [{t: ts, yaw: sv.yaw, pitch: sv.pitch}];
+    S.shots = []; S.next = 0; S.unit = null; S.unitsStarted = 0; S.unitsDone = 0; S.earlyUnits = 0;
+    S.R = {idxNext: 0, lastTs: null}; S.gaps = []; S.result = null; S.rec = null; S.tEnd = 0;
+    S.idealFn = sp.kind === 'spray' ? sprayIdealFn(sp.start, sp.count, S.interval, S.tgt) : null;
+    RP.playing = false; RP.T = 0; updateReplayUI();
+    showResult(null);
+  }
+  function pushShot(ts, v, punch, numAbs, pos, unitIdx){
+    const rel = ts - S.t0, tg = S.tgt(rel);
+    const yaw = v.yaw + punch[0], pitch = v.pitch + punch[1];
+    S.shots.push({t: rel, yaw, pitch, tx: tg.yaw, ty: tg.pitch, err: errorDeg(yaw - tg.yaw, pitch - tg.pitch), num: numAbs, pos, unit: unitIdx});
+    S.lastShot = performance.now();
+  }
+  function fireDue(now){
+    if (S.mode !== 'firing') return;
+    if (S.spec.kind === 'spray') {
+      while (S.mode === 'firing' && S.next < S.spec.count && S.t0 + S.next * S.interval <= now) {
+        const ts = S.t0 + S.next * S.interval, idx = S.spec.start + S.next;
+        pushShot(ts, viewAt(S.samples, ts), PATTERN[idx], idx + 1, S.next, 0);
+        S.next++;
+      }
+      if (S.mode === 'firing' && S.next >= S.spec.count) finish(true);
+    } else {
+      while (S.mode === 'firing' && S.unit && S.unit.fired < S.unit.max && S.unit.startTs + S.unit.fired * S.interval <= now) {
+        const ts = S.unit.startTs + S.unit.fired * S.interval;
+        const f = S.R.lastTs === null ? 0 : recoilIdxAfter(S.R.idxNext, ts - S.R.lastTs, S.interval);
+        pushShot(ts, viewAt(S.samples, ts), punchAt(f), S.shots.length + 1, S.unit.fired, S.unitsStarted);
+        S.R.idxNext = f + 1; S.R.lastTs = ts; S.unit.fired++;
+      }
+      if (S.mode === 'firing' && S.unit && S.unit.fired >= S.unit.max) endUnit(false);
+    }
+  }
+  function startUnit(ts){
+    const last = S.R.lastTs;
+    const startTs = last === null ? ts : Math.max(ts, last + S.interval);
+    if (last !== null) S.gaps.push(startTs - last);
+    S.unit = {fired: 0, max: S.spec.burst, startTs}; S.unitsStarted++;
+    fireDue(ts);
+  }
+  function endUnit(early){
+    S.unit = null; S.unitsDone++; if (early) S.earlyUnits++;
+    if (S.unitsDone >= S.spec.units) finish(true);
+  }
+  function finish(complete){
+    if (S.mode !== 'firing') return;
+    const sp = S.spec, n = S.shots.length;
+    S.mode = 'done'; S.unit = null;
+    S.tEnd = n ? S.shots[n - 1].t : 0;
+    const planned = totalShots(sp);
+    const ok = complete && n > 0 && (sp.kind === 'burst' || n >= sp.count);
+    buildRec();
+    if (!ok) { S.result = {complete: false, n, planned, kind: sp.kind}; showResult(S.result); drawChart(); autoReplay(); return; }
+    const errs = S.shots.map(s => s.err);
+    const avg = errs.reduce((a, b) => a + b, 0) / n;
+    const r = {complete: true, kind: sp.kind, n, planned, avg, max: Math.max.apply(null, errs), speed: opts.speed, mode: modeKey()};
+    if (sp.kind === 'spray') {
+      r.score = scoreFromAvg(avg);
+      const b1 = Math.round(n / 3), b2 = Math.round(2 * n / 3), part = (a, b) => ({
+        label: 'Balas ' + S.shots[a].num + '-' + S.shots[b - 1].num + ':',
+        val: errs.slice(a, b).reduce((x, y) => x + y, 0) / (b - a)});
+      r.parts = [part(0, b1), part(b1, b2), part(b2, n)];
+      r.tips = analyzeSprayTips(S.shots, S.idealFn, S.interval, avg);
+    } else {
+      const w = rhythmWindow(S.interval);
+      r.acc = scoreFromAvg(avg); r.rhythm = Math.round(rhythmScore(S.gaps, w[0], w[1]));
+      const firsts = S.shots.filter(s => s.pos === 0);
+      r.firstAvg = firsts.reduce((a, s) => a + s.err, 0) / Math.max(1, firsts.length);
+      const comp = Math.min(1, n / planned);
+      r.score = Math.round((sp.wAcc * r.acc + (1 - sp.wAcc) * r.rhythm) * comp);
+      r.early = S.earlyUnits;
+      r.parts = [{label: 'Precisão:', val: r.acc, raw: true}, {label: 'Ritmo:', val: r.rhythm, raw: true}, {label: 'Erro do 1º tiro:', val: r.firstAvg}];
+      r.tips = analyzeBurstTips(S.shots, S.gaps, S.interval, sp.burst, avg);
+    }
+    S.result = r;
+    store.history.unshift({ts: Date.now(), score: r.score, avg: r.avg, sens: opts.sens, speed: opts.speed, mode: modeKey()});
+    store.history = store.history.slice(0, 20);
+    const bk = modeKey() + '|' + opts.speed;
+    if (store.best[bk] === undefined || r.score > store.best[bk]) store.best[bk] = r.score;
+    save(STORE_HIST, store);
+    r.speedMsg = '';
+    if (opts.auto && opts.speed < 100) {
+      opts.streak = r.score >= GOOD_SCORE ? opts.streak + 1 : 0;
+      if (opts.streak >= GOOD_STREAK) {
+        const nx = SPEEDS[SPEEDS.indexOf(opts.speed) + 1];
+        if (nx) { opts.speed = nx; opts.streak = 0; $('speed').value = String(nx); r.speedMsg = 'Velocidade subiu para ' + nx + '% no próximo spray.'; }
+      }
+      save(STORE_CFG, opts);
+    }
+    updateGuideInfo(); updateModeNote();
+    showResult(r); renderHistory(); drawChart(); autoReplay();
+  }
+  function reset(){
+    S.mode = 'idle'; S.shots = []; S.samples = []; S.result = null; S.next = 0; S.unit = null; S.rec = null;
+    S.view = startView(spec()); S.tEnd = 0;
+    RP.playing = false; RP.T = 0; updateReplayUI();
+    showResult(null); drawChart(); updateGuideInfo();
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0 || !locked()) return;
+    e.preventDefault();
+    const ts = e.timeStamp || performance.now(), sp = spec();
+    if (sp.kind === 'spray') { beginRound(ts, sp); fireDue(ts); return; }
+    if (S.mode !== 'firing' || S.spec.kind !== 'burst') beginRound(ts, sp);
+    if (S.mode === 'firing' && !S.unit && S.unitsStarted < S.spec.units) startUnit(ts);
+  });
+  document.addEventListener('mouseup', e => {
+    if (e.button !== 0 || S.mode !== 'firing') return;
+    fireDue(e.timeStamp || performance.now());
+    if (S.mode !== 'firing') return;
+    if (S.spec.kind === 'spray') finish(false);
+    else if (S.unit) endUnit(true);
+  });
+  document.addEventListener('mousemove', e => {
+    if (!locked() || S.mode !== 'firing') return;
+    const dx = e.movementX * opts.mult, dy = e.movementY * opts.mult;
+    if (!dx && !dy) return;
+    S.view.yaw += dx * opts.sens * opts.yaw;
+    S.view.pitch -= dy * opts.sens * opts.pitch;
+    const last = S.samples[S.samples.length - 1];
+    S.samples.push({t: Math.max(e.timeStamp || performance.now(), last.t), yaw: S.view.yaw, pitch: S.view.pitch});
+  });
+  document.addEventListener('keydown', e => {
+    if (!locked() && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
+    if (e.repeat) return;
+    const k = (e.key || '').toLowerCase();
+    if (k === 'r') reset();
+    else if (k === 'g') { $('ghost').checked = !$('ghost').checked; readInputs(); }
+  });
+
+  /* ---------- guia ---------- */
+  function guideF(now){
+    if (S.R.lastTs === null) return 0;
+    const gap = now - S.R.lastTs;
+    return gap <= S.interval ? Math.max(0, S.R.idxNext - 1) + gap / S.interval : recoilIdxAfter(S.R.idxNext, gap, S.interval);
+  }
+  function ghostPts(sp){
+    const sv = startView(sp), out = [];
+    if (sp.kind === 'spray') for (let i = sp.start; i < sp.start + sp.count; i++) out.push({yaw: sv.yaw + PATTERN[i][0], pitch: sv.pitch + PATTERN[i][1], num: i + 1});
+    else for (let i = 0; i < sp.burst; i++) out.push({yaw: PATTERN[i][0], pitch: PATTERN[i][1], num: i + 1});
+    return out;
+  }
+  function idealPts(fn, spanMs, interval){
+    const out = [], step = interval / 4;
+    for (let t = 0; t <= spanMs + 1; t += step) out.push(fn(t));
+    return out;
+  }
+
+  /* ---------- desenho da cena (tela principal e replay) ---------- */
+  function drawScene(c, g, sc){
+    const W = g.w, H = g.h, cx = W / 2, cy = H / 2, fd = g.f * opts.zoom;
+    const X = yaw => cx + degToPx(yaw, fd), Y = pitch => cy - degToPx(pitch, fd);
+    c.setTransform(g.dpr, 0, 0, g.dpr, 0, 0);
+    c.fillStyle = '#0b0e12'; c.fillRect(0, 0, W, H);
+    c.lineWidth = 1; c.setLineDash([]);
+    for (let k = -60; k <= 60; k++) {
+      const x = X(k), y = Y(k);
+      c.strokeStyle = k % 5 === 0 ? '#1d2631' : '#141a22';
+      if (x >= 0 && x <= W) { c.beginPath(); c.moveTo(x + .5, 0); c.lineTo(x + .5, H); c.stroke(); }
+      if (y >= 0 && y <= H) { c.beginPath(); c.moveTo(0, y + .5); c.lineTo(W, y + .5); c.stroke(); }
+    }
+    c.strokeStyle = '#2a3441';
+    c.beginPath(); c.moveTo(cx + .5, 0); c.lineTo(cx + .5, H); c.moveTo(0, cy + .5); c.lineTo(W, cy + .5); c.stroke();
+
+    // aneis de erro em volta do alvo
+    const tx = X(sc.target.yaw), ty = Y(sc.target.pitch);
+    c.font = '11px "Segoe UI",Arial'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    [[0.4, '#5bd66a', '0,4°'], [0.9, '#e8d44d', '0,9°'], [1.6, '#f0922b', '1,6°']].forEach(r => {
+      const rad = degToPx(r[0], fd);
+      c.strokeStyle = r[1]; c.globalAlpha = .28; c.setLineDash([4, 5]);
+      c.beginPath(); c.arc(tx, ty, rad, 0, Math.PI * 2); c.stroke();
+      c.setLineDash([]); c.globalAlpha = .7; c.fillStyle = r[1]; c.fillText(r[2], tx + rad + 4, ty - 8);
+      c.globalAlpha = 1;
+    });
+
+    // fantasma: padrao sem compensar
+    if (sc.ghost) {
+      c.strokeStyle = 'rgba(160,172,190,.35)'; c.setLineDash([3, 4]); c.beginPath();
+      sc.ghost.forEach((p, i) => { const x = X(p.yaw), y = Y(p.pitch); i ? c.lineTo(x, y) : c.moveTo(x, y); });
+      c.stroke(); c.setLineDash([]);
+      c.font = '10px "Segoe UI",Arial'; c.textAlign = 'center';
+      sc.ghost.forEach(p => {
+        const x = X(p.yaw), y = Y(p.pitch);
+        c.strokeStyle = 'rgba(160,172,190,.55)'; c.beginPath(); c.arc(x, y, 6, 0, Math.PI * 2); c.stroke();
+        c.fillStyle = 'rgba(160,172,190,.8)'; c.fillText(String(p.num), x, y + .5);
+      });
+    }
+    // caminho ideal da mira
+    if (sc.idealPath && sc.idealPath.length > 1) {
+      c.strokeStyle = sc.idealStrong ? 'rgba(255,210,74,.55)' : 'rgba(60,240,255,.5)'; c.setLineDash([2, 5]); c.lineWidth = 1.5; c.beginPath();
+      sc.idealPath.forEach((p, i) => { const x = X(p.yaw), y = Y(p.pitch); i ? c.lineTo(x, y) : c.moveTo(x, y); });
+      c.stroke(); c.setLineDash([]); c.lineWidth = 1;
+    }
+
+    // alvo
+    if (sc.moving) {
+      const hr = degToPx(0.4, fd), bw = degToPx(0.9, fd), bh = degToPx(3.6, fd);
+      c.fillStyle = '#243040'; c.strokeStyle = '#3a4a60';
+      c.beginPath(); c.rect(tx - bw, ty + hr * 0.9, bw * 2, bh); c.fill(); c.stroke();
+      c.fillStyle = '#b94a3f'; c.strokeStyle = '#fff';
+      c.beginPath(); c.arc(tx, ty, hr, 0, Math.PI * 2); c.fill(); c.stroke();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(tx, ty, 2, 0, Math.PI * 2); c.fill();
+    } else {
+      const gr = c.createRadialGradient(tx, ty, 0, tx, ty, 16);
+      gr.addColorStop(0, 'rgba(229,72,63,.55)'); gr.addColorStop(1, 'rgba(229,72,63,0)');
+      c.fillStyle = gr; c.beginPath(); c.arc(tx, ty, 16, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#e5483f'; c.beginPath(); c.arc(tx, ty, 4, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#fff'; c.beginPath(); c.arc(tx, ty, 4, 0, Math.PI * 2); c.stroke();
+    }
+
+    // trilha da mira
+    if (sc.path && sc.path.length > 1) {
+      c.strokeStyle = 'rgba(255,255,255,.4)'; c.lineWidth = 1.5; c.beginPath();
+      sc.path.forEach((s, i) => { const x = X(s.yaw), y = Y(s.pitch); i ? c.lineTo(x, y) : c.moveTo(x, y); });
+      c.stroke(); c.lineWidth = 1;
+    }
+    // impactos
+    const im = sc.impacts || [];
+    if (im.length) {
+      if (sc.errLines) {
+        im.forEach(s => {
+          c.strokeStyle = errColor(s.err); c.globalAlpha = .35;
+          c.beginPath(); c.moveTo(X(s.yaw), Y(s.pitch)); c.lineTo(X(s.tx), Y(s.ty)); c.stroke(); c.globalAlpha = 1;
+        });
+      }
+      c.strokeStyle = 'rgba(255,255,255,.18)'; c.beginPath();
+      im.forEach((s, i) => { const x = X(s.yaw), y = Y(s.pitch); i ? c.lineTo(x, y) : c.moveTo(x, y); });
+      c.stroke();
+      im.forEach((s, i) => {
+        const x = X(s.yaw), y = Y(s.pitch);
+        c.fillStyle = errColor(s.err); c.strokeStyle = '#000'; c.lineWidth = 1;
+        c.beginPath(); c.arc(x, y, 4.5, 0, Math.PI * 2); c.fill(); c.stroke();
+        if (s.num % 5 === 0 || i === 0) {
+          c.fillStyle = '#fff'; c.font = '10px "Segoe UI",Arial'; c.textAlign = 'left'; c.textBaseline = 'middle';
+          c.fillText(String(s.num), x + 7, y - 7);
+        }
+      });
+      if (sc.flashAge !== undefined && sc.flashAge < 140) {
+        const s = im[im.length - 1];
+        c.strokeStyle = 'rgba(255,255,255,' + (0.8 * (1 - sc.flashAge / 140)) + ')';
+        c.beginPath(); c.arc(X(s.yaw), Y(s.pitch), 5 + sc.flashAge / 12, 0, Math.PI * 2); c.stroke();
+      }
+      if (sc.worst) {
+        const s = sc.worst.shot, x = X(s.yaw), y = Y(s.pitch), r = 11 + sc.worst.pulse * 8;
+        c.strokeStyle = '#ff3b30'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke(); c.lineWidth = 1;
+        c.fillStyle = '#ff3b30'; c.font = '700 11px "Segoe UI",Arial'; c.textAlign = 'left'; c.textBaseline = 'middle';
+        c.fillText('PIOR: bala ' + s.num + ' (' + fmt(s.err, 2) + '°)', x + r + 4, y);
+      }
+    }
+    // guia: onde a mira deve estar agora
+    if (sc.guide && sc.guide.alpha > 0) {
+      const gx = X(sc.guide.pos.yaw), gy = Y(sc.guide.pos.pitch);
+      c.globalAlpha = sc.guide.alpha;
+      const gg = c.createRadialGradient(gx, gy, 0, gx, gy, 18);
+      gg.addColorStop(0, 'rgba(255,210,74,.6)'); gg.addColorStop(1, 'rgba(255,210,74,0)');
+      c.fillStyle = gg; c.beginPath(); c.arc(gx, gy, 18, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#ffd24a'; c.beginPath(); c.arc(gx, gy, 5, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = '#ffd24a'; c.lineWidth = 1.5; c.beginPath(); c.arc(gx, gy, 9, 0, Math.PI * 2); c.stroke(); c.lineWidth = 1;
+      c.globalAlpha = 1;
+    }
+    // mira do jogador
+    const px = X(sc.cross.yaw), py = Y(sc.cross.pitch);
+    c.strokeStyle = '#3cf0ff'; c.lineWidth = 2; c.beginPath();
+    c.moveTo(px - 11, py); c.lineTo(px - 4, py); c.moveTo(px + 4, py); c.lineTo(px + 11, py);
+    c.moveTo(px, py - 11); c.lineTo(px, py - 4); c.moveTo(px, py + 4); c.lineTo(px, py + 11);
+    c.stroke(); c.lineWidth = 1;
+  }
+
+  let chartDirty = true, guideTick = 0;
+  function drawMain(now){
+    const idle = S.mode === 'idle', sp = idle ? spec() : S.spec;
+    const interval = idle ? curInterval() : S.interval;
+    const tgt = idle ? tgtFn() : S.tgt, mv = idle ? opts.moving : S.moving;
+    const tRel = S.mode === 'firing' ? now - S.t0 : S.mode === 'done' ? S.tEnd : 0;
+    const sc = {target: tgt(tRel), moving: mv, ghost: opts.ghost ? ghostPts(sp) : null, idealPath: null,
+      path: S.samples, impacts: S.shots, errLines: mv, cross: idle ? startView(sp) : S.view,
+      flashAge: S.mode === 'firing' ? now - S.lastShot : undefined, guide: null, worst: null};
+    if (opts.ideal && sp.kind === 'spray') sc.idealPath = idealPts(idle ? sprayIdealFn(sp.start, sp.count, interval, tgt) : S.idealFn, (sp.count - 1) * interval, interval);
+    const ga = guideAlpha();
+    if (ga > 0 && S.mode !== 'done') {
+      let pos;
+      if (sp.kind === 'spray') pos = (idle ? sprayIdealFn(sp.start, sp.count, interval, tgt) : S.idealFn)(S.mode === 'firing' ? now - S.t0 : 0);
+      else if (S.mode === 'firing') { const tg = tgt(now - S.t0), p = punchAt(guideF(now)); pos = {yaw: tg.yaw - p[0], pitch: tg.pitch - p[1]}; }
+      else pos = {yaw: 0, pitch: 0};
+      sc.guide = {pos, alpha: ga};
+    }
+    drawScene(ctx, geo, sc);
+
+    const W = geo.w, H = geo.h;
+    ctx.textBaseline = 'top'; ctx.textAlign = 'left'; ctx.font = '700 13px "Segoe UI",Arial'; ctx.fillStyle = '#f0a030';
+    let st;
+    if (S.mode === 'firing') st = sp.kind === 'spray' ? 'BALA ' + S.next + ' / ' + sp.count : (sp.burst === 1 ? 'TIRO ' : 'RAJADA ') + S.unitsDone + ' / ' + sp.units + ' · BALAS ' + S.shots.length;
+    else if (S.mode === 'done') st = S.result && S.result.complete ? (sp.kind === 'spray' && sp.count === SHOTS ? 'SPRAY COMPLETO' : 'RODADA COMPLETA') : 'INCOMPLETO (' + S.shots.length + ' balas, não conta)';
+    else st = 'PRONTO';
+    ctx.fillText(st + ' · ' + modeLabel(modeKey()).toUpperCase(), 12, 10);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#8b97a6'; ctx.font = '12px "Segoe UI",Arial';
+    ctx.fillText('AK-47 · ' + Math.round(6 * opts.speed) + ' RPM (' + opts.speed + '%) · ' + fmt(degToPx(1, geo.f * opts.zoom), 1) + ' px/°', W - 12, 10);
+    if (S.shots.length) {
+      const e = S.shots[S.shots.length - 1].err;
+      ctx.fillStyle = errColor(e); ctx.font = '700 13px "Segoe UI",Arial';
+      ctx.fillText('erro ' + fmt(e, 2) + '°', W - 12, 28);
+    }
+    if (locked() && S.mode === 'idle') {
+      ctx.textAlign = 'center'; ctx.fillStyle = '#8b97a6'; ctx.font = '13px "Segoe UI",Arial';
+      ctx.fillText(sp.kind === 'spray' ? 'Segure o botão esquerdo para atirar. R reinicia.' : 'Clique para atirar (' + (sp.burst === 1 ? '1 bala' : sp.burst + ' balas, segure') + '). Rodada de ' + sp.units + '. R reinicia.', W / 2, H - 26);
+    } else if (locked() && S.mode === 'firing' && sp.kind === 'burst' && !S.unit) {
+      ctx.textAlign = 'center'; ctx.fillStyle = '#8b97a6'; ctx.font = '13px "Segoe UI",Arial';
+      ctx.fillText('Volte ao alvo e espere o recuo zerar antes do próximo clique.', W / 2, H - 26);
+    }
+  }
+  function frame(){
+    const now = performance.now();
+    if (S.mode === 'firing') fireDue(now);
+    drawMain(now);
+    drawReplay(now);
+    if (opts.guide && opts.fade && guideTick++ % 60 === 0) updateGuideInfo();
+    if (S.mode === 'firing' || chartDirty) { drawChart(); chartDirty = false; }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- grafico de erro por bala ---------- */
+  function drawChart(){
+    const w = chart.clientWidth || 600, h = 150, c = cctx;
+    c.setTransform(geo.dpr, 0, 0, geo.dpr, 0, 0);
+    c.fillStyle = '#0e1319'; c.fillRect(0, 0, w, h);
+    const sp = (S.mode === 'idle' && !S.shots.length) ? spec() : S.spec;
+    const nBars = totalShots(sp);
+    const padL = 34, padB = 20, padT = 8, plotW = w - padL - 8, plotH = h - padB - padT, maxE = 4;
+    c.font = '10px "Segoe UI",Arial'; c.textBaseline = 'middle'; c.textAlign = 'right';
+    [0, 0.4, 0.9, 1.6, 2.5, 4].forEach(v => {
+      const y = padT + plotH - (v / maxE) * plotH;
+      c.strokeStyle = v === 0 ? '#3a4452' : '#1b232d'; c.beginPath(); c.moveTo(padL, y + .5); c.lineTo(w - 8, y + .5); c.stroke();
+      if (v === 0 || v === 2.5 || v === 4) { c.fillStyle = '#6f7b8b'; c.fillText(fmt(v, v % 1 ? 1 : 0), padL - 5, y); }
+    });
+    const bw = plotW / nBars, step = nBars > 16 ? 5 : nBars > 8 ? 2 : 1;
+    c.textAlign = 'center';
+    for (let i = 0; i < nBars; i++) {
+      const x = padL + i * bw, label = sp.kind === 'spray' ? sp.start + i + 1 : i + 1;
+      if (i % step === 0 || i === nBars - 1) { c.fillStyle = '#6f7b8b'; c.fillText(String(label), x + bw / 2, h - 9); }
+      const s = S.shots[i];
+      if (!s) continue;
+      const bh = Math.min(s.err, maxE) / maxE * plotH;
+      c.fillStyle = errColor(s.err);
+      c.fillRect(x + 1.5, padT + plotH - bh, Math.max(2, bw - 3), bh);
+    }
+    if (S.result && S.result.complete) {
+      const y = padT + plotH - Math.min(S.result.avg, maxE) / maxE * plotH;
+      c.strokeStyle = '#f0a030'; c.setLineDash([5, 4]); c.beginPath(); c.moveTo(padL, y + .5); c.lineTo(w - 8, y + .5); c.stroke(); c.setLineDash([]);
+      c.fillStyle = '#f0a030'; c.textAlign = 'left'; c.fillText('média ' + fmt(S.result.avg, 2) + '°', padL + 6, Math.max(padT + 7, y - 8));
+    }
+    if (!S.shots.length) {
+      c.fillStyle = '#5c6877'; c.textAlign = 'center'; c.font = '13px "Segoe UI",Arial';
+      c.fillText('Sem dados. Faça um spray para ver o erro de cada bala.', padL + plotW / 2, padT + plotH / 2);
+    }
+  }
+
+  /* ---------- replay comparado ---------- */
+  function buildRec(){
+    const sp = S.spec, t0 = S.t0;
+    const samples = S.samples.map(s => ({t: s.t - t0, yaw: s.yaw, pitch: s.pitch}));
+    const n = S.shots.length;
+    if (!n) { S.rec = null; updateReplayUI(); return; }
+    let worst = 0;
+    S.shots.forEach((s, i) => { if (s.err > S.shots[worst].err) worst = i; });
+    const lastT = S.shots[n - 1].t;
+    const dur = Math.max(lastT + (sp.kind === 'spray' ? 400 : 600), samples.length ? samples[samples.length - 1].t + 100 : 0);
+    S.rec = {sp, interval: S.interval, dur, samples, shots: S.shots.slice(), tgt: S.tgt, moving: S.moving, idealFn: S.idealFn, worst,
+      idealPath: S.idealFn ? idealPts(S.idealFn, (sp.count - 1) * S.interval, S.interval) : null};
+    RP.T = 0; RP.playing = false;
+    const w = S.shots[worst];
+    $('rInfo').textContent = 'Pior bala: ' + w.num + ' (erro de ' + fmt(w.err, 2) + '°). Branco: sua mira. Amarelo: caminho ideal' + (sp.kind === 'burst' ? ' (só em sprays)' : '') + '. Arraste o controle para voltar e avançar bala a bala.';
+    updateReplayUI();
+  }
+  function autoReplay(){ if (S.rec && opts.rauto) { RP.T = 0; RP.playing = true; RP.last = performance.now(); updateReplayUI(); } }
+  function updateReplayUI(){
+    $('rPlay').textContent = RP.playing ? 'Pausar' : 'Reproduzir';
+    $('rPlay').disabled = !S.rec; $('rScrub').disabled = !S.rec;
+    if (!S.rec) { $('rScrub').value = '0'; $('rInfo').textContent = 'Faça um spray para ver o replay.'; return; }
+    $('rScrub').value = String(Math.round(RP.T / S.rec.dur * 1000));
+  }
+  function drawReplay(now){
+    const rec = S.rec;
+    if (RP.playing && rec) {
+      RP.T += (now - RP.last) * opts.rspeed; RP.last = now;
+      if (RP.T >= rec.dur) { RP.T = rec.dur; RP.playing = false; updateReplayUI(); }
+      else $('rScrub').value = String(Math.round(RP.T / rec.dur * 1000));
+    } else RP.last = now;
+    if (!rec) {
+      const sp = spec(), tgt = tgtFn();
+      drawScene(rctx, rgeo, {target: tgt(0), moving: opts.moving, ghost: null, idealPath: null, path: null, impacts: null, cross: startView(sp), guide: null});
+      rctx.fillStyle = '#5c6877'; rctx.font = '13px "Segoe UI",Arial'; rctx.textAlign = 'center'; rctx.textBaseline = 'middle';
+      rctx.fillText('O replay aparece aqui depois do spray.', rgeo.w / 2, rgeo.h - 24);
+      return;
+    }
+    const T = RP.T;
+    const cur = viewLerp(rec.samples, T);
+    const path = rec.samples.filter(s => s.t <= T); path.push({yaw: cur.yaw, pitch: cur.pitch});
+    const fired = rec.shots.filter(s => s.t <= T);
+    const w = rec.shots[rec.worst];
+    const sc = {target: rec.tgt(T), moving: rec.moving, ghost: null, idealPath: rec.idealPath, idealStrong: true, path, impacts: fired, errLines: true,
+      cross: cur, guide: rec.idealFn ? {pos: rec.idealFn(T), alpha: 1} : null,
+      worst: w.t <= T ? {shot: w, pulse: Math.max(0, 1 - (T - w.t) / 500)} : null};
+    drawScene(rctx, rgeo, sc);
+    rctx.textBaseline = 'top'; rctx.textAlign = 'left'; rctx.font = '700 12px "Segoe UI",Arial'; rctx.fillStyle = '#f0a030';
+    rctx.fillText('REPLAY ' + fmt(T / 1000, 2) + ' s / ' + fmt(rec.dur / 1000, 2) + ' s · ' + fired.length + ' de ' + rec.shots.length + ' balas', 10, 8);
+  }
+  $('rPlay').addEventListener('click', () => {
+    if (!S.rec) return;
+    if (RP.playing) RP.playing = false;
+    else { if (RP.T >= S.rec.dur - 1) RP.T = 0; RP.playing = true; RP.last = performance.now(); }
+    updateReplayUI();
+  });
+  $('rScrub').addEventListener('input', () => {
+    if (!S.rec) return;
+    RP.playing = false; RP.T = $('rScrub').value / 1000 * S.rec.dur; updateReplayUI();
+  });
+
+  /* ---------- resultado e historico ---------- */
+  function tierOf(s){
+    return s >= 90 ? ['Global Elite', '#f0a030'] : s >= 80 ? ['Supremo', '#5bd66a'] : s >= 68 ? ['Águia', '#8fd45b']
+      : s >= 55 ? ['Ouro Nova', '#e8d44d'] : s >= 40 ? ['Prata', '#f0922b'] : ['Ferro', '#e5483f'];
+  }
+  function showResult(r){
+    const tip = $('tip');
+    const setParts = (labs, vals) => ['A', 'B', 'C'].forEach((k, i) => { $('lb' + k).textContent = labs[i]; $('st' + k).textContent = vals[i]; });
+    if (!r) {
+      $('score').textContent = '-'; $('score').style.color = 'var(--accent)'; $('tier').textContent = 'Faça um spray'; $('tier').style.color = 'var(--text)';
+      $('scoreSub').textContent = 'Precisão de 0 a 100';
+      ['stAvg', 'stMax'].forEach(id => $(id).textContent = '-');
+      setParts(['Início:', 'Meio:', 'Fim:'], ['-', '-', '-']);
+      tip.style.display = 'none'; renderStats(); return;
+    }
+    if (!r.complete) {
+      $('score').textContent = '-'; $('tier').textContent = 'Incompleto'; $('tier').style.color = 'var(--warn)';
+      $('scoreSub').textContent = 'Foram ' + r.n + ' de ' + r.planned + ' balas. Não conta.';
+      tip.style.display = 'none'; renderStats(); return;
+    }
+    const t = tierOf(r.score);
+    $('score').textContent = String(r.score); $('score').style.color = t[1];
+    $('tier').textContent = t[0]; $('tier').style.color = t[1];
+    $('scoreSub').textContent = r.kind === 'burst' ? 'Precisão ' + r.acc + ' · Ritmo ' + r.rhythm + (r.early ? ' · ' + r.early + ' rajada(s) interrompida(s)' : '') : 'Precisão de 0 a 100';
+    $('stAvg').textContent = fmt(r.avg, 2) + '°'; $('stMax').textContent = fmt(r.max, 2) + '°';
+    setParts(r.parts.map(p => p.label), r.parts.map(p => p.raw ? String(Math.round(p.val)) : fmt(p.val, 2) + '°'));
+    tip.textContent = '';
+    const h = document.createElement('div'); h.textContent = 'Dicas para o próximo spray'; h.style.cssText = 'color:var(--accent);font-weight:700;margin-bottom:4px';
+    tip.appendChild(h);
+    r.tips.forEach(x => { const d = document.createElement('div'); d.textContent = '• ' + x; d.style.marginTop = '3px'; tip.appendChild(d); });
+    if (r.speedMsg) { const d = document.createElement('div'); d.textContent = r.speedMsg; d.style.cssText = 'margin-top:6px;color:var(--good);font-weight:700'; tip.appendChild(d); }
+    tip.style.display = 'block';
+    renderStats();
+  }
+  function renderStats(){
+    const key = modeKey();
+    $('lbBest').textContent = 'Melhor nota (100%, ' + modeLabel(key) + '):';
+    const b = store.best[key + '|100'];
+    $('stBest').textContent = b === undefined ? '-' : String(b);
+    const slow = [50, 75].filter(v => store.best[key + '|' + v] !== undefined).map(v => v + '%: ' + store.best[key + '|' + v]);
+    $('bestSlow').textContent = slow.length ? 'Melhores em câmera lenta neste modo (não contam como recorde): ' + slow.join(' · ') : '';
+    const last = store.history.filter(h => h.speed === opts.speed && h.mode === key).slice(0, 10);
+    $('stMean').textContent = last.length ? fmt(last.reduce((a, x) => a + x.score, 0) / last.length, 1) : '-';
+    $('stCount').textContent = String(store.history.length);
+  }
+  function renderHistory(){
+    const body = $('histBody'); body.textContent = '';
+    store.history.forEach((h, i) => {
+      const tr = document.createElement('tr');
+      const d = new Date(h.ts);
+      const cells = [String(store.history.length - i), d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}),
+        String(h.score), fmt(h.avg, 2) + '°', modeLabel(h.mode) + ' ' + h.speed + '%', fmt(h.sens, 2)];
+      cells.forEach((txt, j) => {
+        const td = document.createElement('td'); td.textContent = txt;
+        if (j === 2) { td.style.color = tierOf(h.score)[1]; td.style.fontWeight = '700'; }
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    $('histEmpty').style.display = store.history.length ? 'none' : 'block';
+    renderStats();
+  }
+
+  /* ---------- entradas da interface ---------- */
+  ['sens', 'myaw', 'mpitch', 'mult', 'dpi', 'gop', 'tspeed'].forEach(id => $(id).addEventListener('input', readInputs));
+  ['aspect', 'zoom', 'ghost', 'ideal', 'raw', 'speed', 'auto', 'guide', 'fade', 'moving', 'rauto', 'rspeed'].forEach(id => $(id).addEventListener('change', () => {
+    readInputs(); if (id === 'aspect') resize(); if (id === 'speed' || id === 'moving') { updateModeNote(); renderStats(); if (S.mode !== 'firing') reset(); }
+  }));
+  $('mode').addEventListener('change', () => { readInputs(); resetMode(); });
+  function resetMode(){ S.mode = 'idle'; reset(); renderStats(); drawChart(); }
+  $('parseBtn').addEventListener('click', () => applyCfgText($('paste').value, 'Texto colado'));
+  $('paste').addEventListener('paste', () => setTimeout(() => { if ($('paste').value.trim()) applyCfgText($('paste').value, 'Texto colado'); }, 0));
+  $('file').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    try {
+      let all = '';
+      for (const f of files) { all += '\n' + await f.text(); }
+      applyCfgText(all, files.map(f => f.name).join(', '));
+    } catch (err) {
+      $('cfgMsg').style.color = 'var(--bad)'; $('cfgMsg').textContent = 'Não consegui ler o arquivo.';
+    }
+  });
+  $('clearHist').addEventListener('click', () => {
+    if (!confirm('Apagar o histórico e as melhores notas?')) return;
+    store = {best: {}, history: []}; save(STORE_HIST, store); renderHistory(); showResult(S.result);
+  });
+  window.addEventListener('resize', resize);
+
+  writeInputs(); S.view = startView(spec()); renderHistory(); showResult(null); resize(); updateReplayUI();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
